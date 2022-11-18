@@ -5,12 +5,7 @@ import time
 
 
 for model in Models:
-    if model == Models.UPPER_LIMB_XYZ_TEMPLATE:
-        continue
-    if model == Models.HUMANOID_10DOF:
-        biorbd_model = biorbd.Model(model.value[0])
-    else:
-        biorbd_model = biorbd.Model(model.value)
+    biorbd_model = biorbd.Model(model.value)
     t_fd = []
     t_id = []
     for i in range(100000):

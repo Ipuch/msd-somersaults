@@ -22,16 +22,7 @@ from bioptim import (
     BiMappingList,
     MultinodeConstraintList,
     RigidBodyDynamics,
-    NoisedInitialGuess,
 )
-
-# from custom_dynamics.root_explicit_qddot_joint import root_explicit_dynamic, custom_configure_root_explicit
-# from custom_dynamics.root_implicit import root_implicit_dynamic, custom_configure_root_implicit
-# from custom_dynamics.implicit_dynamics_tau_driven_qdddot import (
-#     tau_implicit_qdddot_dynamic,
-#     custom_configure_tau_driven_implicit,
-# )
-# from custom_dynamics.root_implicit_qddot import root_implicit_qdddot_dynamic, custom_configure_root_implicit_qdddot
 
 
 class MillerDynamics(Enum):
@@ -77,6 +68,7 @@ class MillerOcp:
         n_threads: int = 8,
         ode_solver: OdeSolver = OdeSolver.RK4(),
         rigidbody_dynamics: RigidBodyDynamics = RigidBodyDynamics.ODE,
+        dynamics_function: DynamicsFcn = DynamicsFcn.TORQUE_DRIVEN,
         vertical_velocity_0: float = 9.2,  # Real data 9.2 before
         somersaults: float = 4 * np.pi,
         twists: float = 6 * np.pi,
@@ -152,6 +144,7 @@ class MillerOcp:
                 biorbd.Model(biorbd_model_path),
             )
             self.rigidbody_dynamics = rigidbody_dynamics
+            self.dynamics_function = dynamics_function
 
             self.n_q = self.biorbd_model[0].nbQ()
             self.n_qdot = self.biorbd_model[0].nbQdot()
@@ -165,8 +158,8 @@ class MillerOcp:
             ):
                 self.n_qddot = self.biorbd_model[0].nbQddot()
             elif (
-                self.rigidbody_dynamics == RigidBodyDynamics.ODE
-                or self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT
+                self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN
+                or self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN
             ):
                 self.n_qddot = self.biorbd_model[0].nbQddot() - self.biorbd_model[0].nbRoot()
 
@@ -263,22 +256,12 @@ class MillerOcp:
         Set the dynamics of the optimal control problem
         """
         for phase in range(len(self.n_shooting)):
-            if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+            if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
                 self.dynamics.add(
-                    DynamicsFcn.TORQUE_DRIVEN,
+                    self.dynamics_function,
                     with_contact=False,
                     rigidbody_dynamics=RigidBodyDynamics.ODE,
                 )
-            # elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
-            #     self.dynamics.add(custom_configure_root_explicit, dynamic_function=root_explicit_dynamic)
-            # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
-            #     self.dynamics.add(DynamicsFcn.TORQUE_DRIVEN, implicit_dynamics=True, with_contact=False)
-            # elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT:
-            #     self.dynamics.add(custom_configure_root_implicit, dynamic_function=root_implicit_dynamic)
-            # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS_JERK:
-            #     self.dynamics.add(custom_configure_tau_driven_implicit, dynamic_function=tau_implicit_qdddot_dynamic)
-            # elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT_QDDDOT:
-            #     self.dynamics.add(custom_configure_root_implicit_qdddot, dynamic_function=root_implicit_qdddot_dynamic)
             else:
                 raise ValueError("This dynamics has not been implemented")
 
@@ -570,22 +553,22 @@ class MillerOcp:
                     (np.random.random((self.nb_root, n_shooting)) * 2 - 1) * self.qddot_max * self.random_scale_qddot
                 )
 
-                if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+                if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
                     self.u_init.add(tau_J_random, interpolation=InterpolationType.EACH_FRAME)
-                elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
+                elif self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
                     self.u_init.add(qddot_J_random, interpolation=InterpolationType.EACH_FRAME)
-                elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
-                    u = np.vstack((tau_J_random, qddot_B_random, qddot_J_random))
-                    self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
-                elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT:
-                    u = np.vstack((qddot_B_random, qddot_J_random))
-                    self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
-                elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS_JERK:
-                    u = np.vstack((tau_J_random, qddot_B_random * 10, qddot_J_random * 10))
-                    self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
-                elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT_QDDDOT:
-                    u = np.vstack((qddot_B_random * 10, qddot_J_random * 10))
-                    self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
+                # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
+                #     u = np.vstack((tau_J_random, qddot_B_random, qddot_J_random))
+                #     self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
+                # elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT:
+                #     u = np.vstack((qddot_B_random, qddot_J_random))
+                #     self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
+                # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS_JERK:
+                #     u = np.vstack((tau_J_random, qddot_B_random * 10, qddot_J_random * 10))
+                #     self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
+                # elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT_QDDDOT:
+                #     u = np.vstack((qddot_B_random * 10, qddot_J_random * 10))
+                #     self.u_init.add(u, interpolation=InterpolationType.EACH_FRAME)
                 else:
                     raise ValueError("This dynamics has not been implemented")
         elif self.u is not None:
@@ -960,11 +943,11 @@ class MillerOcp:
                     )
                 )
 
-            if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+            if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
                 self.u_bounds.add([self.tau_min] * self.n_tau, [self.tau_max] * self.n_tau)
                 self.u_bounds[0].min[self.high_torque_idx, :] = self.tau_hips_min
                 self.u_bounds[0].max[self.high_torque_idx, :] = self.tau_hips_max
-            elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
+            elif self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
                 self.u_bounds.add([self.qddot_min] * self.n_qddot, [self.qddot_max] * self.n_qddot)
             elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
                 self.u_bounds.add(
@@ -1018,13 +1001,13 @@ class MillerOcp:
         """
         Set the mapping between the states and controls of the model
         """
-        if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+        if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
             self.mapping.add(
                 "tau",
                 [None, None, None, None, None, None, 0, 1, 2, 3, 4, 5, 6, 7, 8],
                 [6, 7, 8, 9, 10, 11, 12, 13, 14],
             )
-        elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
+        elif self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
             print("no bimapping")
         elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
             self.mapping.add(

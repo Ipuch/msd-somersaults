@@ -1,18 +1,18 @@
 """
-
+This script is used to run the optimization for a lot of different parameters
 """
 import os
 
-
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
 from datetime import date
 from pathlib import Path
 import pandas as pd
+import numpy as np
 
-from bioptim import OdeSolver, RigidBodyDynamics, DefectType
+from bioptim import OdeSolver, RigidBodyDynamics, DefectType, DynamicsFcn
 
-from utils import generate_calls, run_pool, run_the_missing_ones
-from robot_leg import ArmOCP, LegOCP, MillerOcpOnePhase, Models, UpperLimbOCP, HumanoidOCP
+from utils import generate_calls, run_pool
+from somersault import MillerOcpOnePhase, Models
 from run_ocp import RunOCP
 
 
@@ -25,98 +25,39 @@ def main(
     seed_start=0,
     calls=1,
 ):
-
-    if model == Models.LEG:
-        # n_shooting = [(20, 20)]
-        n_shooting = [20]
-        # n_shooting = [5, 10, 15, 25]
-        run_ocp = RunOCP(
-            ocp_class=LegOCP,
-            show_optim=show_optim,
-            iteration=iterations,
-            print_level=print_level,
-            ignore_already_run=ignore_already_run,
-        )
-        running_function = run_ocp.main
-    elif model == Models.ARM:
-        n_shooting = [50]
-        # n_shooting = [5, 10, 15, 20, 25, 30, 40, 45, 50]
-        # n_shooting = [10, 15, 20, 25, 30, 40, 45, 50]
-        run_ocp = RunOCP(
-            ocp_class=ArmOCP,
-            show_optim=show_optim,
-            iteration=iterations,
-            print_level=print_level,
-            ignore_already_run=ignore_already_run,
-        )
-        running_function = run_ocp.main
-    elif model == Models.ACROBAT:
-        n_shooting = [125]
-        # n_shooting = [75, 100, 150]
-        run_ocp = RunOCP(
-            ocp_class=MillerOcpOnePhase,
-            show_optim=show_optim,
-            iteration=iterations,
-            print_level=print_level,
-            ignore_already_run=ignore_already_run,
-        )
-        running_function = run_ocp.main
-    elif model == Models.UPPER_LIMB_XYZ_VARIABLES:
-        n_shooting = [100]
-        run_ocp = RunOCP(
-            ocp_class=UpperLimbOCP,
-            show_optim=show_optim,
-            iteration=iterations,
-            print_level=print_level,
-            ignore_already_run=ignore_already_run,
-        )
-        running_function = run_ocp.main
-
-    elif model == Models.HUMANOID_10DOF:
-        n_shooting = [30]
-        run_ocp = RunOCP(
-            ocp_class=HumanoidOCP,
-            show_optim=show_optim,
-            iteration=iterations,
-            print_level=print_level,
-            ignore_already_run=ignore_already_run,
-        )
-        running_function = run_ocp.main
-
-    else:
-        raise ValueError("Unknown model")
+    n_shooting = [125]
+    run_ocp = RunOCP(
+        ocp_class=MillerOcpOnePhase,
+        show_optim=show_optim,
+        iteration=iterations,
+        print_level=print_level,
+        ignore_already_run=ignore_already_run,
+    )
+    running_function = run_ocp.main
 
     ode_list = [
-        OdeSolver.COLLOCATION(defects_type=DefectType.IMPLICIT, polynomial_degree=4),
+        # OdeSolver.COLLOCATION(defects_type=DefectType.IMPLICIT, polynomial_degree=4),
         OdeSolver.COLLOCATION(defects_type=DefectType.EXPLICIT, polynomial_degree=4),
         OdeSolver.RK4(n_integration_steps=5),
-        OdeSolver.RK8(n_integration_steps=2),
+        # OdeSolver.RK8(n_integration_steps=2),
         # # OdeSolver.CVODES(),
-        OdeSolver.IRK(defects_type=DefectType.EXPLICIT, polynomial_degree=4),
+        # OdeSolver.IRK(defects_type=DefectType.EXPLICIT, polynomial_degree=4),
         # OdeSolver.IRK(defects_type=DefectType.IMPLICIT, polynomial_degree=4),
     ]
-    if model != Models.ACROBAT:
-        if model == Models.HUMANOID_10DOF or model == Models.UPPER_LIMB_XYZ_VARIABLES:  # no implicit
-            ode_list = ode_list[1:]
-        else:
-            ode_list.append(OdeSolver.IRK(defects_type=DefectType.IMPLICIT, polynomial_degree=4))
+    dynamics_list = [
+        DynamicsFcn.TORQUE_DRIVEN,
+        DynamicsFcn.JOINTS_ACCELERATION_DRIVEN,
+    ]
+    twist_list = [
+        2 * np.pi,
+        4 * np.pi,
+        6 * np.pi,
+    ]
 
-    # --- Generate the output path --- #
-    Date = date.today().strftime("%d-%m-%y")
-    out_path = Path(
-        Path(__file__).parent.__str__()
-        # + f"/../../dms-vs-dc-results/{model.name}_{Date}_2"
-        + f"/../../dms-vs-dc-results/{model.name}_07-10-22_2"
-    )
-    try:
-        os.mkdir(out_path)
-    except:
-        print(f"{out_path}" + Date + " is already created ")
+    out_path = mkdir_result_folder(model)
 
     # --- Generate the parameters --- #
     n_thread = 8
-    # n_thread = 4
-    #  n_thread = 32
     param = dict(
         model_str=[
             model.value,
@@ -127,6 +68,8 @@ def main(
         dynamic_type=[
             RigidBodyDynamics.ODE,
         ],
+        dynamics=dynamics_list,
+        twists=twist_list,
         out_path=[out_path.absolute().__str__()],
     )
     calls = int(calls)
@@ -154,6 +97,21 @@ def main(
             calls=my_calls,
             pool_nb=my_pool_number,
         )
+
+
+def mkdir_result_folder(model):
+    # --- Generate the output path --- #
+    Date = date.today().strftime("%d-%m-%y")
+    out_path = Path(
+        Path(__file__).parent.__str__()
+        + f"/../../dms-vs-dc-results/{model.name}_{Date}"
+    )
+    try:
+        os.mkdir(out_path)
+    except:
+        print(f"{out_path}" + Date + " is already created ")
+
+    return out_path
 
 
 if __name__ == "__main__":

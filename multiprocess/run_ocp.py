@@ -63,20 +63,21 @@ class RunOCP:
             List of arguments containing the following:
             args[0] : biorbd_model_path
                 Path to the biorbd model.
-            args[1] : i_rand
-                Random seed.
+            args[1] : ode_solver
+                Ode solver to use.
             args[2] : n_shooting
-                Number of shooting nodes.
-            args[3] : dynamics_type (RigidBodyDynamics)
-                Type of dynamics to use such as RigidBodyDynamics.ODE or RigidBodyDynamics.DAE_INVERSE_DYNAMICS, ...
-            args[4] : ode_solver
-                Type of ode solver to use such as OdeSolver.RK4, OdeSolver.RK2, ...
-            args[5] : nstep
-                Number of steps for the ode solver.
-            args[6] : n_threads
+                Number of shooting points.
+            args[3] : n_threads
                 Number of threads to use.
-            args[7] : out_path_raw
-                Path to save the raw results.
+            args[4] : dynamics_type
+                Dynamics type to use.
+            args[5] : dynamics_function
+                Dynamics function to use.
+            args[6] : out_path
+                Path to the output folder.
+            args[7] : i_rand
+                Random seed to use.
+
         """
         if args:
             biorbd_model_path = args[0]
@@ -84,16 +85,20 @@ class RunOCP:
             n_shooting = args[2]
             n_threads = args[3]
             dynamics_type = args[4]
-            out_path_raw = args[5]
-            i_rand = args[6]
+            dynamics_function = args[5]
+            twists = args[6]
+            out_path_raw = args[7]
+            i_rand = args[8]
         else:
             biorbd_model_path = args[0]
             ode_solver = args[1]
             n_shooting = args[2]
             n_threads = args[3]
             dynamics_type = args[4]
-            out_path_raw = args[5]
-            i_rand = args[6]
+            dynamics_function = args[5]
+            twists = args[6]
+            out_path_raw = args[7]
+            i_rand = args[8]
 
         str_ode_solver = ode_solver.__str__().replace("\n", "_").replace(" ", "_")
         str_dynamics_type = (
@@ -115,6 +120,8 @@ class RunOCP:
         my_ocp = self.ocp_class(
             biorbd_model_path=biorbd_model_path,
             rigidbody_dynamics=dynamics_type,
+            dynamics_function=dynamics_function,
+            twists=twists,
             n_shooting=n_shooting,
             ode_solver=ode_solver,
             n_threads=n_threads,

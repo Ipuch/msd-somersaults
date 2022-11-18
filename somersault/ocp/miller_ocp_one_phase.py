@@ -1,7 +1,6 @@
 from enum import Enum
 
 import biorbd_casadi as biorbd
-import biorbd as brd
 import numpy as np
 from scipy import interpolate
 from bioptim import (
@@ -22,17 +21,7 @@ from bioptim import (
     BiMappingList,
     MultinodeConstraintList,
     RigidBodyDynamics,
-    NoisedInitialGuess,
-    IntegralApproximation,
 )
-
-# from custom_dynamics.root_explicit_qddot_joint import root_explicit_dynamic, custom_configure_root_explicit
-# from custom_dynamics.root_implicit import root_implicit_dynamic, custom_configure_root_implicit
-# from custom_dynamics.implicit_dynamics_tau_driven_qdddot import (
-#     tau_implicit_qdddot_dynamic,
-#     custom_configure_tau_driven_implicit,
-# )
-# from custom_dynamics.root_implicit_qddot import root_implicit_qdddot_dynamic, custom_configure_root_implicit_qdddot
 
 
 class MillerDynamics(Enum):
@@ -78,6 +67,7 @@ class MillerOcpOnePhase:
         n_threads: int = 8,
         ode_solver: OdeSolver = OdeSolver.RK4(),
         rigidbody_dynamics: RigidBodyDynamics = RigidBodyDynamics.ODE,
+        dynamics_function: DynamicsFcn = DynamicsFcn.TORQUE_DRIVEN,
         vertical_velocity_0: float = 8.30022867e00,  # actualized with results from https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4096894
         somersaults: float = 4 * np.pi,
         twists: float = 2 * np.pi,
@@ -148,6 +138,7 @@ class MillerOcpOnePhase:
 
             self.biorbd_model = (biorbd.Model(biorbd_model_path),)
             self.rigidbody_dynamics = rigidbody_dynamics
+            self.dynamics_function = dynamics_function
 
             self.n_q = self.biorbd_model[0].nbQ()
             self.n_qdot = self.biorbd_model[0].nbQdot()
@@ -161,8 +152,8 @@ class MillerOcpOnePhase:
             ):
                 self.n_qddot = self.biorbd_model[0].nbQddot()
             elif (
-                self.rigidbody_dynamics == RigidBodyDynamics.ODE
-                or self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT
+                self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN
+                or self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN
             ):
                 self.n_qddot = self.biorbd_model[0].nbQddot() - self.biorbd_model[0].nbRoot()
 
@@ -257,14 +248,10 @@ class MillerOcpOnePhase:
         Set the dynamics of the optimal control problem
         """
 
-        if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
-            self.dynamics.add(
-                DynamicsFcn.TORQUE_DRIVEN,
-                with_contact=False,
-                rigidbody_dynamics=RigidBodyDynamics.ODE,
-            )
-        else:
-            raise ValueError("This dynamics has not been implemented")
+        self.dynamics.add(
+            self.dynamics_function,
+            rigidbody_dynamics=RigidBodyDynamics.ODE,
+        )
 
     def _set_objective_functions(self):
         """
@@ -276,98 +263,65 @@ class MillerOcpOnePhase:
         w_penalty = 1
         w_penalty_foot = 10
         w_penalty_core = 10
-        w_torque = 100
-        # integral_approximation = IntegralApproximation.TRAPEZOIDAL
-        i = 0
-        ## TAU ##
-        self.objective_functions.add(
-            ObjectiveFcn.Lagrange.MINIMIZE_CONTROL,
-            key="tau",
-            weight=w_torque,
-            phase=i,
-            quadratic=True,
-        )
-        self.objective_functions.add(
-            ObjectiveFcn.Lagrange.MINIMIZE_CONTROL,
-            key="tau",
-            weight=w_torque,
-            derivative=True,
-            phase=i,
-            quadratic=True,
-            # integration_rule=integral_approximation
-        )
-        ## ANGULAR MOMENTUM ##
-        self.objective_functions.add(
-            ObjectiveFcn.Mayer.MINIMIZE_ANGULAR_MOMENTUM,
-            weight=50,
-            quadratic=False,
-            index=[0],
-            phase=i,
-            node=Node.START,
-        )
-        self.objective_functions.add(
-            ObjectiveFcn.Mayer.MINIMIZE_ANGULAR_MOMENTUM,
-            weight=50,
-            quadratic=True,
-            index=[1, 2],
-            phase=i,
-            node=Node.START,
-        )
+        w_angular_momentum_x = 100000
+        w_angular_momentum_yz = 1000
+        for i in range(1):
+            self.objective_functions.add(
+                ObjectiveFcn.Lagrange.MINIMIZE_STATE,
+                derivative=True,
+                key="qdot",
+                index=(6, 7, 8, 9, 10, 11, 12, 13, 14),
+                weight=w_qdot,
+                phase=i,
+            )  # Regularization
+            self.objective_functions.add(
+                ObjectiveFcn.Mayer.MINIMIZE_MARKERS,
+                derivative=True,
+                reference_jcs=0,
+                marker_index=6,
+                weight=w_penalty,
+                phase=i,
+                node=Node.ALL_SHOOTING,
+            )  # Right hand trajectory
+            self.objective_functions.add(
+                ObjectiveFcn.Mayer.MINIMIZE_MARKERS,
+                derivative=True,
+                reference_jcs=0,
+                marker_index=11,
+                weight=w_penalty,
+                phase=i,
+                node=Node.ALL_SHOOTING,
+            )  # Left hand trajectory
+            self.objective_functions.add(
+                ObjectiveFcn.Mayer.MINIMIZE_MARKERS,  ########### Lagrange
+                node=Node.ALL_SHOOTING,
+                derivative=True,
+                reference_jcs=0,
+                marker_index=16,
+                weight=w_penalty_foot,
+                phase=i,
+                quadratic=False,
+            )  # feet trajectory
+            self.objective_functions.add(
+                ObjectiveFcn.Lagrange.MINIMIZE_STATE, index=(6, 7, 8, 13, 14), key="q", weight=w_penalty_core, phase=i
+            )  # core DoFs
 
-        ## CORE DOF ##
-        self.objective_functions.add(
-            ObjectiveFcn.Lagrange.MINIMIZE_STATE,
-            index=(6, 7, 8, 13, 14),
-            key="q",
-            weight=w_penalty_core,
-            phase=i,
-            quadratic=True,
-            # integration_rule=integral_approximation
-        )  # core DoFs
-
-        ## QDOT DERIVATIVE##
-        self.objective_functions.add(
-            ObjectiveFcn.Lagrange.MINIMIZE_STATE,
-            derivative=True,
-            key="qdot",
-            index=(6, 7, 8, 9, 10, 11, 12, 13, 14),
-            weight=w_qdot,
-            phase=i,
-            quadratic=True,
-            # integration_rule=integral_approximation
-        )  # Regularization
-
-        ## MARKERS POSITION ##
-        self.objective_functions.add(
-            ObjectiveFcn.Mayer.MINIMIZE_MARKERS,
-            derivative=True,
-            reference_jcs=0,
-            marker_index=6,
-            weight=w_penalty,
-            phase=i,
-            node=Node.ALL_SHOOTING,
-            quadratic=True,
-        )  # Right hand trajectory
-        self.objective_functions.add(
-            ObjectiveFcn.Mayer.MINIMIZE_MARKERS,
-            derivative=True,
-            reference_jcs=0,
-            marker_index=11,
-            weight=w_penalty,
-            phase=i,
-            node=Node.ALL_SHOOTING,
-            quadratic=True,
-        )  # Left hand trajectory
-        self.objective_functions.add(
-            ObjectiveFcn.Mayer.MINIMIZE_MARKERS,  # Lagrange
-            node=Node.ALL_SHOOTING,
-            derivative=True,
-            reference_jcs=0,
-            marker_index=16,
-            weight=w_penalty_foot,
-            phase=i,
-            quadratic=True,
-        )  # feet trajectory
+            self.objective_functions.add(
+                ObjectiveFcn.Mayer.MINIMIZE_ANGULAR_MOMENTUM,
+                node=Node.START,
+                phase=0,
+                weight=w_angular_momentum_x,
+                quadratic=False,
+                index=0,
+            )
+            self.objective_functions.add(
+                ObjectiveFcn.Mayer.MINIMIZE_ANGULAR_MOMENTUM,
+                node=Node.START,
+                phase=0,
+                weight=w_angular_momentum_yz,
+                quadratic=True,
+                index=[1, 2],
+            )
 
         ## SLACKED TIME ##
         slack_duration = 0.05
@@ -452,9 +406,9 @@ class MillerOcpOnePhase:
                 (np.random.random((self.nb_root, n_shooting)) * 2 - 1) * self.qddot_max * self.random_scale_qddot
             )
 
-            if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+            if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
                 self.u_init.add(tau_J_random, interpolation=InterpolationType.EACH_FRAME)
-            elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
+            elif self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
                 self.u_init.add(qddot_J_random, interpolation=InterpolationType.EACH_FRAME)
             elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
                 u = np.vstack((tau_J_random, qddot_B_random, qddot_J_random))
@@ -672,12 +626,12 @@ class MillerOcpOnePhase:
             )
         )
 
-        if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+        if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
             self.u_bounds.add([self.tau_min] * self.n_tau, [self.tau_max] * self.n_tau)
             self.u_bounds[0].min[self.high_torque_idx, :] = self.tau_hips_min
             self.u_bounds[0].max[self.high_torque_idx, :] = self.tau_hips_max
-        # elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
-        #     self.u_bounds.add([self.qddot_min] * self.n_qddot, [self.qddot_max] * self.n_qddot)
+        elif self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
+            self.u_bounds.add([self.qddot_min] * self.n_qddot, [self.qddot_max] * self.n_qddot)
         # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
         #     self.u_bounds.add(
         #         [self.tau_min] * self.n_tau + [self.qddot_min] * self.n_qddot,
@@ -699,8 +653,8 @@ class MillerOcpOnePhase:
         #         [self.qdddot_min] * self.n_qdddot,
         #         [self.qdddot_max] * self.n_qdddot,
         #     )
-        # else:
-        #     raise ValueError("This dynamics has not been implemented")
+        else:
+            raise ValueError("This dynamics has not been implemented")
 
     def _interpolate_initial_states(self, X0: np.array):
         """
@@ -730,29 +684,29 @@ class MillerOcpOnePhase:
         """
         Set the mapping between the states and controls of the model
         """
-        if self.rigidbody_dynamics == RigidBodyDynamics.ODE:
+        if self.dynamics_function == DynamicsFcn.TORQUE_DRIVEN:
             self.mapping.add(
                 "tau",
                 [None, None, None, None, None, None, 0, 1, 2, 3, 4, 5, 6, 7, 8],
                 [6, 7, 8, 9, 10, 11, 12, 13, 14],
             )
-        elif self.rigidbody_dynamics == MillerDynamics.ROOT_EXPLICIT:
+        elif self.dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
             print("no bimapping")
-        elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
-            self.mapping.add(
-                "tau",
-                [None, None, None, None, None, None, 0, 1, 2, 3, 4, 5, 6, 7, 8],
-                [6, 7, 8, 9, 10, 11, 12, 13, 14],
-            )
-        elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT:
-            pass
-        elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS_JERK:
-            self.mapping.add(
-                "tau",
-                [None, None, None, None, None, None, 0, 1, 2, 3, 4, 5, 6, 7, 8],
-                [6, 7, 8, 9, 10, 11, 12, 13, 14],
-            )
-        elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT_QDDDOT:
-            pass
+        # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS:
+        #     self.mapping.add(
+        #         "tau",
+        #         [None, None, None, None, None, None, 0, 1, 2, 3, 4, 5, 6, 7, 8],
+        #         [6, 7, 8, 9, 10, 11, 12, 13, 14],
+        #     )
+        # elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT:
+        #     pass
+        # elif self.rigidbody_dynamics == RigidBodyDynamics.DAE_INVERSE_DYNAMICS_JERK:
+        #     self.mapping.add(
+        #         "tau",
+        #         [None, None, None, None, None, None, 0, 1, 2, 3, 4, 5, 6, 7, 8],
+        #         [6, 7, 8, 9, 10, 11, 12, 13, 14],
+        #     )
+        # elif self.rigidbody_dynamics == MillerDynamics.ROOT_IMPLICIT_QDDDOT:
+        #     pass
         else:
             raise ValueError("This dynamics has not been implemented")
