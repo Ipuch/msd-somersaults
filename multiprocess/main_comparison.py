@@ -24,6 +24,7 @@ def main(
     show_optim=False,
     seed_start=0,
     calls=1,
+    twists=None,
 ):
     n_shooting = [125]
     run_ocp = RunOCP(
@@ -36,9 +37,9 @@ def main(
     running_function = run_ocp.main
 
     ode_list = [
-        # OdeSolver.COLLOCATION(defects_type=DefectType.IMPLICIT, polynomial_degree=4),
         OdeSolver.COLLOCATION(defects_type=DefectType.EXPLICIT, polynomial_degree=4),
         OdeSolver.RK4(n_integration_steps=5),
+        OdeSolver.COLLOCATION(defects_type=DefectType.IMPLICIT, polynomial_degree=4),
         # OdeSolver.RK8(n_integration_steps=2),
         # # OdeSolver.CVODES(),
         # OdeSolver.IRK(defects_type=DefectType.EXPLICIT, polynomial_degree=4),
@@ -49,9 +50,10 @@ def main(
         DynamicsFcn.JOINTS_ACCELERATION_DRIVEN,
     ]
     twist_list = [
-        2 * np.pi,
-        4 * np.pi,
-        6 * np.pi,
+        # 2 * np.pi,
+        # 4 * np.pi,
+        # 6 * np.pi,
+        twists,
     ]
 
     out_path = mkdir_result_folder(model)
@@ -104,7 +106,9 @@ def mkdir_result_folder(model):
     Date = date.today().strftime("%d-%m-%y")
     out_path = Path(
         Path(__file__).parent.__str__()
-        + f"/../../dms-vs-dc-results/{model.name}_{Date}"
+        + f"/../../msd-somersaults-results/"
+        + f"ACROBAT_21-11-22"
+          # f"{model.name}_{Date}"
     )
     try:
         os.mkdir(out_path)
@@ -115,25 +119,16 @@ def mkdir_result_folder(model):
 
 
 if __name__ == "__main__":
-    # iteration = 0
     iteration = 3000
     main(
-        model=Models.LEG,
+        model=Models.ACROBAT,
         iterations=iteration,
         print_level=5,
         ignore_already_run=True,
         show_optim=False,
-        seed_start=30,
-        calls=70,
-    )
-    main(
-        model=Models.ARM,
-        iterations=iteration,
-        print_level=5,
-        ignore_already_run=True,
-        show_optim=False,
-        seed_start=30,
-        calls=70,
+        seed_start=10,
+        calls=20,
+        twists=2 * np.pi,
     )
     main(
         model=Models.ACROBAT,
@@ -141,26 +136,17 @@ if __name__ == "__main__":
         print_level=5,
         ignore_already_run=True,
         show_optim=False,
-        seed_start=30,
-        calls=70,
+        seed_start=10,
+        calls=20,
+        twists=4 * np.pi,
     )
-
     main(
-        model=Models.UPPER_LIMB_XYZ_VARIABLES,
+        model=Models.ACROBAT,
         iterations=iteration,
         print_level=5,
-        ignore_already_run=False,
+        ignore_already_run=True,
         show_optim=False,
-        seed_start=0,
-        calls=100,
+        seed_start=10,
+        calls=20,
+        twists=6 * np.pi,
     )
-
-    # main(
-    #     model=Models.HUMANOID_10DOF,
-    #     iterations=iteration,
-    #     print_level=5,
-    #     ignore_already_run=False,
-    #     show_optim=False,
-    #     seed_start=0,
-    #     calls=100,
-    # )

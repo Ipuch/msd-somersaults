@@ -14,6 +14,7 @@ from bioptim import (
     Shooting,
     SolutionIntegrator,
     CostType,
+    DynamicsFcn,
 )
 
 
@@ -102,10 +103,11 @@ class RunOCP:
 
         str_ode_solver = ode_solver.__str__().replace("\n", "_").replace(" ", "_")
         str_dynamics_type = (
-            dynamics_type.__str__().replace("RigidBodyDynamics.", "").replace("\n", "_").replace(" ", "_")
+            dynamics_function.__str__().replace("DynamicsFcn.", "").replace("\n", "_").replace(" ", "_")
         )
         filename = (
-            f"sol_irand{i_rand}_{n_shooting}_{str_ode_solver}_{ode_solver.defects_type.value}_{str_dynamics_type}"
+            f"sol_irand{i_rand}_{n_shooting}_{str_ode_solver}_{ode_solver.defects_type.value}"
+            f"_{str_dynamics_type}_{int(np.round(twists/(2*np.pi),decimals=0))}"
         )
         outpath = f"{out_path_raw}/" + filename
 
@@ -150,6 +152,8 @@ class RunOCP:
             f"ode_solver={str_ode_solver},\n"
             f"n_shooting={n_shooting},\n"
             f"n_threads={n_threads}\n"
+            f"{dynamics_function}\n"
+            f"twists = {twists}\n"
         )
         print(f"##########################################################")
 
@@ -168,6 +172,8 @@ class RunOCP:
             f"ode_solver={str_ode_solver},\n"
             f"n_shooting={n_shooting},\n"
             f"n_threads={n_threads}\n"
+            f"{dynamics_function}\n"
+            f"twists = {twists}\n"
         )
         print(f"##################################################### done ")
 
@@ -200,7 +206,8 @@ class RunOCP:
             "ode_solver": ode_solver,
             "ode_solver_str": ode_solver.__str__().replace("\n", "_").replace(" ", "_"),
             "defects_type": ode_solver.defects_type,
-            "tau": sol_merged.controls["tau"],
+            "tau": sol_merged.controls["tau"] if dynamics_function == DynamicsFcn.TORQUE_DRIVEN else None,
+            "qddot_joints": sol_merged.controls["qddot_joints"] if dynamics_function == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN else None,
             "q": sol_merged.states_no_intermediate["q"],
             "qdot": sol_merged.states_no_intermediate["qdot"],
             "qddot": qddot,
@@ -208,6 +215,8 @@ class RunOCP:
             "qdot_integrated": sol_integrated.states["qdot"],
             "n_shooting": n_shooting,
             "n_theads": n_threads,
+            "twists": twists,
+            "dynamics_function":dynamics_function,
         }
 
         pickle.dump(data, f)
@@ -219,8 +228,6 @@ class RunOCP:
 
     @staticmethod
     def recompute_qddot(biorbd_model_path, sol):
-        if biorbd_model_path.__len__() > 1:
-            biorbd_model_path = biorbd_model_path[0]
         biorbd_model = biorbd.Model(biorbd_model_path)
         qddot = list()
         if len(sol.phase_time) > 2:
