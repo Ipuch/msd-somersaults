@@ -15,15 +15,13 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 
 import biorbd
-from bioptim import OptimalControlProgram
+from bioptim import DynamicsFcn
 
 from utils import (
-    stack_states,
-    stack_controls,
-    define_time,
     compute_error_single_shooting,
     compute_error_single_shooting_each_frame,
     my_traces,
+    my_traces_2_param,
     my_twokey_traces,
     add_annotation_letter,
     generate_windows_size,
@@ -32,7 +30,7 @@ from utils import (
 )
 
 from enums import ResultFolders
-from robot_leg import Models
+from somersault import Models
 
 
 class ResultsAnalyse:
@@ -183,7 +181,10 @@ class ResultsAnalyse:
                 # _, sol = OptimalControlProgram.load(f"{self.path_to_files}/{p.stem}.bo")
                 # DM to array
                 data["filename"] = file
-                data["tau"] = data["controls"]["tau"]
+                if "tau" in data["controls"].keys():
+                    data["tau"] = data["controls"]["tau"]
+                if "qddot_joint" in data["controls"].keys():
+                    data["qddot_joint"] = data["controls"]["qddot_joint"]
 
                 data["cost"] = np.array(data["cost"])[0][0]
                 # print(data["n_threads"])
@@ -205,7 +206,13 @@ class ResultsAnalyse:
                 q_integrated = data["q_integrated"]
                 # # print(data["q_integrated"].shape)
 
-                (data["translation_error"], data["rotation_error"],) = compute_error_single_shooting(
+                (data["translation_error"],
+                 data["rotation_error"],
+                 data["translation_error_root"],
+                    data["rotation_error_root"],
+                    data["translation_error_joint"],
+                    data["rotation_error_joint"],
+                 ) = compute_error_single_shooting(
                     model=model,
                     n_shooting=n_shooting,
                     time=np.array(data["time"]),
@@ -237,6 +244,12 @@ class ResultsAnalyse:
                         / (model.nbQ() + model.nbQdot() + model.nbGeneralizedTorque())
                 )
 
+                # Dynamics function
+                if data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
+                    data["dynamics_function_label"] = "Joints acceleration controls"
+                elif data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
+                    data["dynamics_function_label"] = "Torque controls"
+
                 # labels and groups with ode solvers
                 data["ode_solver_defects"] = f"{data['ode_solver'].__str__()}_{data['defects_type'].value}"
                 # clean ode_solver_defects to display a nice label
@@ -246,16 +259,36 @@ class ResultsAnalyse:
                 # replace labels for ode solvers
                 if data["ode_solver_defects_labels"] == "ERK4 5 steps":
                     data["ode_solver_defects_labels"] = "ERK"
+                    if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
+                        data["full_label"] = r'$\text{ERK}\text{ - torque driven}$'
+                    else:
+                        data["full_label"] = r'$\text{ERK}\text{ - joints acceleration driven}$'
                 elif data["ode_solver_defects_labels"] == "ERK8":
                     data["ode_solver_defects_labels"] = r'$\text{ERK8}$'
-                elif data["ode_solver_defects_labels"] == "IRK implicit":
-                    data["ode_solver_defects_labels"] = r'$\text{IRK}^{\text{ID}}$'
-                elif data["ode_solver_defects_labels"] == "IRK explicit":
-                    data["ode_solver_defects_labels"] = r'$\text{IRK}^{\text{FD}}$'
+                    if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
+                        data["full_label"] = r'$\text{ERK8}\text{ - torque driven}$'
+                    else:
+                        data["full_label"] = r'$\text{ERK8}\text{ - joints acceleration driven}$'
+                # # elif data["ode_solver_defects_labels"] == "IRK implicit":
+                # #     data["ode_solver_defects_labels"] = r'$\text{IRK}^{\text{ID}}$'
+                # elif data["ode_solver_defects_labels"] == "IRK explicit":
+                #     data["ode_solver_defects_labels"] = r'$\text{IRK}^{\text{FD}}$'
+                #     if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
+                #         data["full_label"] = r'$\text{IRK}^{\text{FD}}\text{ - torque driven}$'
+                #     elif data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
+                #         data["full_label"] = r'$\text{IRK}^{\text{FD}}\text{ - joints acceleration driven}$'
                 elif data["ode_solver_defects_labels"] == "COLLOCATION implicit":
                     data["ode_solver_defects_labels"] = r'$\text{DC}^{\text{ID}}$'
+                    if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
+                        data["full_label"] = r'$\text{DC}^{\text{ID}}\text{ - torque driven}$'
+                    elif data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
+                        data["full_label"] = r'$\text{DC}^{\text{ID}}\text{ - joints acceleration driven}$'
                 elif data["ode_solver_defects_labels"] == "COLLOCATION explicit":
                     data["ode_solver_defects_labels"] = r'$\text{DC}^{\text{FD}}$'
+                    if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
+                        data["full_label"] = r'$\text{DC}^{\text{FD}}\text{ - torque driven}$'
+                    elif data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
+                        data["full_label"] = r'$\text{DC}^{\text{FD}}\text{ - joints acceleration driven}$'
 
                 data["grps"] = f"{data['ode_solver'].__str__()}_{data['defects_type'].value}_{n_shooting}"
 
@@ -275,23 +308,24 @@ class ResultsAnalyse:
         # sort the dataframe by the column by ode_solver_defects
         # rk4, rk8, irk explicit, irk implicit, collocation explicit, collocation implicit
         ode_solver_defects_list = [
-            "RK4 5 steps_not_applicable",
-            "RK8 2 steps_not_applicable",
-            "IRK legendre 4_explicit",
-            "IRK legendre 4_implicit",
-            "COLLOCATION legendre 4_explicit",
-            "COLLOCATION legendre 4_implicit",
+            r'$\text{ERK}\text{ - torque driven}$',
+            r'$\text{ERK}\text{ - joints acceleration driven}$',
+            r'$\text{DC}^{\text{FD}}\text{ - torque driven}$',
+            r'$\text{DC}^{\text{FD}}\text{ - joints acceleration driven}$',
+            r'$\text{DC}^{\text{ID}}\text{ - torque driven}$',
+            r'$\text{DC}^{\text{ID}}\text{ - joints acceleration driven}$',
         ]
         colors = {ode: px.colors.qualitative.D3[i] for i, ode in enumerate(ode_solver_defects_list)}
 
         ode_solver_defects_list_updated = [
-            cat for cat in ode_solver_defects_list if cat in df_results["ode_solver_defects"].unique()
+            cat for cat in ode_solver_defects_list if cat in df_results["full_label"].unique()
         ]
-        df_results["ode_solver_defects"] = pd.Categorical(
-            df_results["ode_solver_defects"], ode_solver_defects_list_updated
+
+        df_results["full_label"] = pd.Categorical(
+            df_results["full_label"], ode_solver_defects_list_updated
         )
 
-        df_results.sort_values("ode_solver_defects", ascending=True, inplace=True)
+        df_results.sort_values("full_label", ascending=True, inplace=True)
         # reindex the dataframe
         df_results = df_results.reset_index(drop=True)
 
@@ -904,6 +938,57 @@ class ResultsAnalyse:
 
         b.exec()
 
+    def _mytrace(self,
+                 fig: go.Figure,
+                 dyn: str,
+                 grps: list,
+                 df,
+                 key: str,
+                 row: int,
+                 col: int,
+                 ylabel: str = None,
+                 title_str: str = None,
+                 ylog: bool = True,
+                 colors: list = None,
+                 show_legend: bool = False,
+                 label=None,
+                 ):
+
+        if len(self.df["twists"].unique().tolist()) == 1:
+            fig = my_traces(
+                fig=fig,
+                dyn=dyn,
+                grps=grps,
+                df=df,
+                key=key,
+                row=row,
+                col=col,
+                ylabel=ylabel,
+                title_str=title_str,
+                ylog=ylog,
+                colors=colors,
+                show_legend=show_legend,
+                label=label,
+            )
+        else:
+            fig = my_traces_2_param(
+                fig=fig,
+                dyn=dyn,
+                grps=grps,
+                df=df,
+                key=key,
+                row=row,
+                col=col,
+                ylabel=ylabel,
+                title_str=title_str,
+                ylog=ylog,
+                colors=colors,
+                show_legend=show_legend,
+                label=label,
+            )
+
+        return fig
+
     def plot_time_iter(self, show: bool = True, export: bool = True, time_unit: str = "s", export_suffix: str = None):
         """
         This function plots the time and number of iterations need to make the OCP converge
@@ -919,7 +1004,7 @@ class ResultsAnalyse:
         """
 
         # dyn = [i for i in df_results["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
-        dyn = self.df["grps"].unique().tolist()
+        dyn = self.df["full_label"].unique().tolist()
         grps = dyn
 
         fig = make_subplots(rows=1, cols=2)
@@ -930,7 +1015,7 @@ class ResultsAnalyse:
         if time_unit == "min":
             df_results["computation_time"] = df_results["computation_time"] / 60
 
-        fig = my_traces(
+        fig = self._mytrace(
             fig,
             dyn,
             grps,
@@ -940,8 +1025,9 @@ class ResultsAnalyse:
             1,
             "time (s)",
             ylog=False,
+            label="full_label",
         )
-        fig = my_traces(
+        fig = self._mytrace(
             fig,
             dyn,
             grps,
@@ -951,6 +1037,7 @@ class ResultsAnalyse:
             2,
             r"$\text{iterations}$",
             ylog=False,
+            label="full_label",
         )
 
         fig.update_layout(
@@ -993,6 +1080,193 @@ class ResultsAnalyse:
         if export:
             self.export(fig, "analyse_time_iter", export_suffix)
 
+            def plot_time_iter(self, show: bool = True, export: bool = True, time_unit: str = "s",
+                               export_suffix: str = None):
+                """
+                This function plots the time and number of iterations need to make the OCP converge
+
+                Parameters
+                ----------
+                show : bool
+                    If True, the figure is shown.
+                export : bool
+                    If True, the figure is exported.
+                time_unit : str
+                    The time unit of the figure.
+                """
+
+                # dyn = [i for i in df_results["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
+                dyn = self.df["full_label"].unique().tolist()
+                grps = dyn
+
+                fig = make_subplots(rows=1, cols=2)
+
+                # select only the one who converged
+                df_results = self.df[self.df["status"] == 0]
+
+                if time_unit == "min":
+                    df_results["computation_time"] = df_results["computation_time"] / 60
+
+                fig = self._mytrace(
+                    fig,
+                    dyn,
+                    grps,
+                    df_results,
+                    "computation_time",
+                    1,
+                    1,
+                    "time (s)",
+                    ylog=False,
+                    label="full_label",
+                )
+                fig = self._mytrace(
+                    fig,
+                    dyn,
+                    grps,
+                    df_results,
+                    "iterations",
+                    1,
+                    2,
+                    r"$\text{iterations}$",
+                    ylog=False,
+                    label="full_label",
+                )
+
+                fig.update_layout(
+                    height=800,
+                    width=1500,
+                    paper_bgcolor="rgba(255,255,255,1)",
+                    plot_bgcolor="rgba(255,255,255,1)",
+                    legend=dict(
+                        title_font_family="Times New Roman",
+                        font=dict(family="Times New Roman", color="black", size=11),
+                        orientation="h",
+                        xanchor="center",
+                        x=0.5,
+                        y=-0.05,
+                    ),
+                    font=dict(
+                        size=12,
+                        family="Times New Roman",
+                    ),
+                    yaxis=dict(color="black"),
+                    template="simple_white",
+                    boxgap=0.2,
+                )
+                fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
+                fig = add_annotation_letter(fig, "B", x=0.56, y=0.99, on_paper=True)
+
+                fig.update_yaxes(
+                    row=1,
+                    col=1,
+                    tickformat=".1f",
+                )
+                fig.update_yaxes(
+                    row=1,
+                    col=2,
+                    tickformat=".0f",
+                )
+
+                if show:
+                    fig.show()
+                if export:
+                    self.export(fig, "analyse_time_iter", export_suffix)
+
+    def plot_time(
+            self,
+            show: bool = True,
+            export: bool = True,
+            time_unit: str = "s",
+            export_suffix: str = None,
+            fig=None,
+            row=None,
+            col=None,
+    ):
+        """
+        This function plots the time need to make the OCP converge
+
+        Parameters
+        ----------
+        show : bool
+            If True, the figure is shown.
+        export : bool
+            If True, the figure is exported.
+        time_unit : str
+            The time unit of the figure.
+        """
+
+        # dyn = [i for i in df_results["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
+        dyn = self.df["full_label"].unique().tolist()
+        grps = dyn
+
+        if fig is None:
+            fig = make_subplots(rows=1, cols=1)
+        if row is None:
+            row = 1
+        if col is None:
+            col = 1
+
+        # select only the one who converged
+        df_results = self.df[self.df["status"] == 0]
+
+        if time_unit == "min":
+            df_results["computation_time"] = df_results["computation_time"] / 60
+
+        unit_str = "min" if time_unit == "min" else "s"
+
+        fig = self._mytrace(
+            fig,
+            dyn,
+            grps,
+            df_results,
+            "computation_time",
+            row=row,
+            col=col,
+            ylabel=f"time ({unit_str})",
+            ylog=False,
+            label="full_label",
+        )
+
+        fig.update_layout(
+            height=800,
+            width=1500,
+            paper_bgcolor="rgba(255,255,255,1)",
+            plot_bgcolor="rgba(255,255,255,1)",
+            legend=dict(
+                title_font_family="Times New Roman",
+                font=dict(family="Times New Roman", color="black", size=11),
+                orientation="h",
+                xanchor="center",
+                x=0.5,
+                y=-0.05,
+            ),
+            font=dict(
+                size=12,
+                family="Times New Roman",
+            ),
+            yaxis=dict(color="black"),
+            template="simple_white",
+            boxgap=0.2,
+        )
+
+        fig.update_yaxes(
+            row=1,
+            col=1,
+            tickformat=".1f",
+        )
+        fig.update_yaxes(
+            row=1,
+            col=2,
+            tickformat=".0f",
+        )
+
+        if show:
+            fig.show()
+        if export:
+            self.export(fig, "analyse_time_iter", export_suffix)
+
+        return fig
+
     def plot_integration_frame_to_frame_error(
             self, show: bool = True, export: bool = True, until_consistent: bool = False, export_suffix: str = None
     ):
@@ -1010,7 +1284,7 @@ class ResultsAnalyse:
         """
 
         # dyn = [i for i in self.df["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
-        dyn = self.df["grps"].unique().tolist()
+        dyn = self.df["ode_solver_defects_labels"].unique().tolist()
         grps = dyn
 
         fig = make_subplots(rows=1, cols=2, subplot_titles=["translation error", "rotation error"])
@@ -1098,7 +1372,96 @@ class ResultsAnalyse:
         if export:
             self.export(fig, "analyse_integration_each_frame", export_suffix)
 
-    def plot_integration_final_error(self, show: bool = True, export: bool = True, export_suffix: str = None):
+    def plot_integration_final_error(
+            self,
+            key: str ="rotation_error",
+            show: bool = True,
+            export: bool = True,
+            export_suffix: str = None,
+            fig=None,
+            row=None,
+            col=None,
+    ):
+        """
+        This function plots the time and number of iterations need to make the OCP converge
+
+        Parameters
+        ----------
+        key : str
+            The key to plot
+        show : bool
+            If True, the figure is shown.
+        export : bool
+            If True, the figure is exported.
+        """
+
+        # dyn = [i for i in self.df["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
+        dyn = self.df["full_label"].unique().tolist()
+        grps = dyn
+
+        if fig is None:
+            fig = make_subplots(rows=1, cols=1)
+        if row is None:
+            row = 1
+        if col is None:
+            col = 1
+
+        # select only the one who converged
+        df_results = self.df[self.df["status"] == 0]
+
+        fig = self._mytrace(
+            fig,
+            dyn,
+            grps,
+            df_results,
+            key=key,
+            row=row,
+            col=col,
+            ylabel="degrees",
+            ylog=True,
+            label="full_label"
+        )
+
+        fig.update_layout(
+            height=800,
+            width=1500,
+            paper_bgcolor="rgba(255,255,255,1)",
+            plot_bgcolor="rgba(255,255,255,1)",
+            legend=dict(
+                title_font_family="Times New Roman",
+                font=dict(family="Times New Roman", color="black", size=15),
+                orientation="h",
+                xanchor="center",
+                x=0.5,
+                y=0.95,
+            ),
+            font=dict(
+                size=15,
+                family="Times New Roman",
+            ),
+            yaxis=dict(color="black"),
+            template="simple_white",
+            boxgap=0.2,
+        )
+        # fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
+
+        fig.update_yaxes(
+            row=1,
+            col=1,
+        )
+        fig.update_yaxes(
+            row=1,
+            col=2,
+        )
+
+        if show:
+            fig.show()
+        if export:
+            self.export(fig, "analyse_integration", export_suffix)
+
+        return fig
+
+    def plot_obj_values(self, show: bool = True, export: bool = True, export_suffix: str = None):
         """
         This function plots the time and number of iterations need to make the OCP converge
 
@@ -1111,7 +1474,7 @@ class ResultsAnalyse:
         """
 
         # dyn = [i for i in self.df["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
-        dyn = self.df["grps"].unique().tolist()
+        dyn = self.df["full_label"].unique().tolist()
         grps = dyn
 
         fig = make_subplots(rows=1, cols=1)
@@ -1119,16 +1482,17 @@ class ResultsAnalyse:
         # select only the one who converged
         df_results = self.df[self.df["status"] == 0]
 
-        fig = my_traces(
+        fig = self._mytrace(
             fig,
             dyn,
             grps,
             df_results,
-            "rotation_error",
+            key="cost5",
+            # key="cost",
             row=1,
             col=1,
-            ylabel="degrees",
-            ylog=True,
+            ylabel="objective value",
+            label="full_label",
         )
 
         fig.update_layout(
@@ -1152,23 +1516,28 @@ class ResultsAnalyse:
             template="simple_white",
             boxgap=0.2,
         )
-        fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
 
         fig.update_yaxes(
             row=1,
             col=1,
         )
-        fig.update_yaxes(
-            row=1,
-            col=2,
-        )
 
         if show:
             fig.show()
         if export:
-            self.export(fig, "analyse_integration", export_suffix)
+            self.export(fig, "analyse_obj", export_suffix)
 
-    def plot_obj_values(self, show: bool = True, export: bool = True, export_suffix: str = None):
+        return fig
+
+    def plot_obj_values_except(
+            self,
+            show: bool = True,
+            export: bool = True,
+            export_suffix: str = None,
+            fig = None,
+            row = None,
+            col = None,
+    ):
         """
         This function plots the time and number of iterations need to make the OCP converge
 
@@ -1181,23 +1550,36 @@ class ResultsAnalyse:
         """
 
         # dyn = [i for i in self.df["grps"].unique().tolist() if "COLLOCATION" in i and "legendre" in i]
-        dyn = self.df["ode_solver_defects_labels"].unique().tolist()
+        dyn = self.df["full_label"].unique().tolist()
         grps = dyn
 
-        fig = make_subplots(rows=1, cols=1)
+        if fig is None:
+            fig = make_subplots(rows=1, cols=1)
+        if row is None:
+            row = 1
+        if col is None:
+            col = 1
 
         # select only the one who converged
         df_results = self.df[self.df["status"] == 0]
 
-        fig = my_traces(
+        df_results["cost_almost"] = df_results["cost1"] \
+                                    + df_results["cost2"] \
+                                    + df_results["cost3"] \
+                                    + df_results["cost4"] \
+                                    + df_results["cost6"] \
+                                    + df_results["cost7"]
+
+        fig = self._mytrace(
             fig,
             dyn,
             grps,
             df_results,
-            key="cost",
-            row=1,
-            col=1,
+            key="cost_almost",
+            row=row,
+            col=col,
             ylabel="objective value",
+            label="full_label",
         )
 
         fig.update_layout(
@@ -1835,113 +2217,92 @@ class ResultsAnalyse:
             # )
 
 
-def generate_results_objects():
-    results_leg = ResultsAnalyse.from_folder(
-        model_path=Models.LEG.value,
-        path_to_files=ResultFolders.LEG_100.value,
-        export=True,
-    )
-    results_leg.print()
-    # export the entire object results_leg in a pickle file
-    with open("results_leg.pickle", "wb") as f:
-        pickle.dump(results_leg, f)
+def generate_results_objects() -> tuple:
 
-    results_arm = ResultsAnalyse.from_folder(
-        model_path=Models.ARM.value,
-        path_to_files=ResultFolders.ARM_100.value,
-        export=True,
-    )
-    results_arm.print()
-    # export the entire object results_arm in a pickle file
-    with open("results_arm.pickle", "wb") as f:
-        pickle.dump(results_arm, f)
-
-    results_acrobat = ResultsAnalyse.from_folder(
+    results_all_twists = ResultsAnalyse.from_folder(
         model_path=Models.ACROBAT.value,
-        path_to_files=ResultFolders.ACROBAT_100.value,
+        path_to_files=ResultFolders.ACROBAT.value,
+    )
+    results_all_twists.print()
+    # export the entire object to a pickle file
+    with open("results_all_twists.pickle", "wb") as f:
+        pickle.dump(results_all_twists, f)
+
+    results_1_twist = ResultsAnalyse.from_folder(
+        model_path=Models.ACROBAT.value,
+        path_to_files=ResultFolders.ACROBAT_1_TWIST.value,
         export=True,
     )
-    results_acrobat.print()
-    # export the entire object results_acrobat in a pickle file
-    with open("results_acrobat.pickle", "wb") as f:
-        pickle.dump(results_acrobat, f)
+    results_1_twist.print()
+    # export the entire object results_leg in a pickle file
+    with open("results_1_twist.pickle", "wb") as f:
+        pickle.dump(results_1_twist, f)
 
-    results_walker = ResultsAnalyse.from_folder(
-        model_path=Models.HUMANOID_10DOF.value,
-        path_to_files=ResultFolders.WALKING_100.value,
+    results_2_twist = ResultsAnalyse.from_folder(
+        model_path=Models.ACROBAT.value,
+        path_to_files=ResultFolders.ACROBAT_2_TWIST.value,
         export=True,
     )
-    results_walker.print()
-    # export the entire object results_walker in a pickle file
-    with open("results_walker.pickle", "wb") as f:
-        pickle.dump(results_walker, f)
+    results_2_twist.print()
+    # export the entire object results_leg in a pickle file
+    with open("results_2_twist.pickle", "wb") as f:
+        pickle.dump(results_2_twist, f)
 
-    results_upper_limb = ResultsAnalyse.from_folder(
-        model_path=Models.UPPER_LIMB_XYZ_VARIABLES.value,
-        path_to_files=ResultFolders.UPPER_LIMB_100.value,
+    results_3_twist = ResultsAnalyse.from_folder(
+        model_path=Models.ACROBAT.value,
+        path_to_files=ResultFolders.ACROBAT_3_TWIST.value,
         export=True,
     )
-    results_upper_limb.print()
-    # export the entire object results_walker in a pickle file
-    with open("results_upper_limb.pickle", "wb") as f:
-        pickle.dump(results_upper_limb, f)
+    results_3_twist.print()
+    # export the entire object results_leg in a pickle file
+    with open("results_3_twist.pickle", "wb") as f:
+        pickle.dump(results_3_twist, f)
 
-    return results_leg, results_arm, results_acrobat, results_walker, results_upper_limb
+    return results_all_twists, results_1_twist, results_2_twist, results_3_twist
 
 
-def load_results_objects():
-    with open("results_leg.pickle", "rb") as f:
-        results_leg = pickle.load(f)
-        results_leg.print()
-    with open("results_arm.pickle", "rb") as f:
-        results_arm = pickle.load(f)
-        results_arm.print()
-    with open("results_acrobat.pickle", "rb") as f:
-        results_acrobat = pickle.load(f)
-        results_acrobat.print()
-    with open("results_walker.pickle", "rb") as f:
-        results_walker = pickle.load(f)
-        results_walker.print()
-    with open("results_upper_limb.pickle", "rb") as f:
-        results_upper_limb = pickle.load(f)
-        results_upper_limb.print()
+def load_results_objects() -> tuple:
 
-    return results_leg, results_arm, results_acrobat, results_walker, results_upper_limb
+    with open("results_all_twists.pickle", "rb") as f:
+        results_all_twists = pickle.load(f)
+        results_all_twists.print()
+    with open("results_1_twist.pickle", "rb") as f:
+        results_1_twist = pickle.load(f)
+        results_1_twist.print()
+    with open("results_2_twist.pickle", "rb") as f:
+        results_2_twist = pickle.load(f)
+        results_2_twist.print()
+    with open("results_3_twist.pickle", "rb") as f:
+        results_3_twist = pickle.load(f)
+        results_3_twist.print()
+
+    return results_all_twists, results_1_twist, results_2_twist, results_3_twist
 
 
 def big_figure(
-        results_leg: ResultsAnalyse,
-        results_arm: ResultsAnalyse,
-        results_acrobat: ResultsAnalyse,
-        results_walker: ResultsAnalyse,
-        results_upper_limb: ResultsAnalyse,
+        results_all: ResultsAnalyse,
 ):
     fig = make_subplots(
-        rows=4,
-        cols=5,
+        rows=1,
+        cols=3,
         vertical_spacing=0.1,
         horizontal_spacing=0.05,
-        subplot_titles=("3-DoF Leg", "6-DoF Arm", "Acrobat", "Planar human", "Upper limb"),
+        subplot_titles=("Time", "Cost Function", "Dynamic Consistency"),
     )
 
-    df = ["df", "df", "near_optimal", "df"]
     keys = ["computation_time", "cost", "cumulative_percent_of_near_optimal_ocp", "rotation_error"]
     ylabels = ["CPU time\n(s)", "Cost function value", "Near optimal frequency (%)", "Rotation error RMSE\n(deg)"]
 
-    # df = ["df", "df", "df"]
-    # keys = ["computation_time", "cost", "rotation_error"]
-    # ylabels = ["CPU time\n(s)", "Cost function value", "Rotation error RMSE\n(deg)"]
-
-    ylog = [False, True, False, True]
-    fig = results_leg.plot_keys(keys=keys, fig=fig, col=1, ylabel=ylabels, df_list=df, ylog=ylog)
-    fig = results_arm.plot_keys(keys=keys, fig=fig, col=2, ylog=ylog, df_list=df)
-    fig = results_acrobat.plot_keys(keys=keys, fig=fig, col=3, ylog=ylog, df_list=df)
-    fig = results_walker.plot_keys(keys=keys, fig=fig, col=4, ylog=ylog, df_list=df)
-    fig = results_upper_limb.plot_keys(keys=keys, fig=fig, col=5, ylog=ylog, df_list=df)
+    fig = results_all.plot_time(fig=fig, row=1, col=1, time_unit="min", show=False)
+    fig.show()
+    fig = results_all.plot_obj_values_except(fig=fig, row=1, col=2, show=False)
+    fig.show()
+    fig = results_all.plot_integration_final_error(fig=fig, row=1, col=3, show=False)
+    fig.show()
 
     fig.update_layout(
-        height=900,
-        width=1200,
+        height=600,
+        width=1500,
         paper_bgcolor="rgba(255,255,255,1)",
         plot_bgcolor="rgba(255,255,255,1)",
         legend=dict(
@@ -1961,35 +2322,39 @@ def big_figure(
         boxgap=0.2,
     )
 
-    # display the horizontal lines for each grid of the figure
-    for i in range(1, 5):
-        for j in range(1, 5):
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="lightgrey", row=i, col=j)
+    fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
+    fig = add_annotation_letter(fig, "B", x=0.36, y=0.99, on_paper=True)
+    fig = add_annotation_letter(fig, "C", x=0.70, y=0.99, on_paper=True)
 
-    # delete all the yaxis titles if col > 1
-    for i in range(1, 5):
-        for j in range(2, 6):
-            fig.update_yaxes(title="", row=i, col=j)
-
-    # custom ranges
-    fig.update_yaxes(range=[0, 4], row=1, col=1)
-    fig.update_yaxes(range=[np.log10(7.21e-4), np.log10(7.214e-4)], row=2, col=1)
-    fig.update_yaxes(range=[np.log10(884), np.log10(884.2)], row=2, col=4)
-    fig.update_yaxes(range=[0, 0.6e4], row=1, col=3)
-
-    # same format for all y ticks
-    for i in range(6):
-        fig.update_yaxes(tickformat=".2e", row=2, col=i)
-
-    for i in range(6):
-        fig.update_yaxes(tickformat=".0%", row=3, col=i)
-        fig.update_xaxes(tickformat=".0%", row=3, col=i)
-
-    for i in range(6):
-        fig.update_xaxes(range=[0, 1.6], row=3, col=i)
-
-    # legend font bigger
-    fig.update_layout(legend=dict(font=dict(size=15)))
+    # # display the horizontal lines for each grid of the figure
+    # for i in range(1, 5):
+    #     for j in range(1, 5):
+    #         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="lightgrey", row=i, col=j)
+    #
+    # # delete all the yaxis titles if col > 1
+    # for i in range(1, 5):
+    #     for j in range(2, 6):
+    #         fig.update_yaxes(title="", row=i, col=j)
+    #
+    # # custom ranges
+    # fig.update_yaxes(range=[0, 4], row=1, col=1)
+    # fig.update_yaxes(range=[np.log10(7.21e-4), np.log10(7.214e-4)], row=2, col=1)
+    # fig.update_yaxes(range=[np.log10(884), np.log10(884.2)], row=2, col=4)
+    # fig.update_yaxes(range=[0, 0.6e4], row=1, col=3)
+    #
+    # # same format for all y ticks
+    # for i in range(6):
+    #     fig.update_yaxes(tickformat=".2e", row=2, col=i)
+    #
+    # for i in range(6):
+    #     fig.update_yaxes(tickformat=".0%", row=3, col=i)
+    #     fig.update_xaxes(tickformat=".0%", row=3, col=i)
+    #
+    # for i in range(6):
+    #     fig.update_xaxes(range=[0, 1.6], row=3, col=i)
+    #
+    # # legend font bigger
+    # fig.update_layout(legend=dict(font=dict(size=15)))
 
     fig.show()
 
@@ -2224,40 +2589,63 @@ def figure_cumulative(
 
 
 if __name__ == "__main__":
-    # results_leg, results_arm, results_acrobat, results_walker, results_upper_limb = generate_results_objects()
+    # results_all_twist, results_1_twist, results_2_twist, results_3_twist = generate_results_objects()
+    results_all_twist, results_1_twist, results_2_twist, results_3_twist = load_results_objects()
 
-    # results_upper_limb = ResultsAnalyse.from_folder(
-    #     model_path=Models.UPPER_LIMB_XYZ_VARIABLES.value,
-    #     path_to_files=ResultFolders.UPPER_LIMB_100.value,
-    #     export=True,
-    # )
-    # results_upper_limb.print()
-    # # export the entire object results_walker in a pickle file
-    # with open("results_upper_limb.pickle", "wb") as f:
-    #     pickle.dump(results_upper_limb, f)
+    # results_1_twist.animate(1)
+    # results_2_twist.animate(1)
+    # results_3_twist.animate(1)
 
-    results_leg, results_arm, results_acrobat, results_walker, results_upper_limb = load_results_objects()
+    # results_1_twist.plot_time_iter()
+    # results_2_twist.plot_time_iter()
+    # results_3_twist.plot_time_iter()
+    #
+    # results_1_twist.plot_obj_values()
+    # results_2_twist.plot_obj_values()
+    # results_3_twist.plot_obj_values()
+
+    # results_1_twist.plot_state(key="q")
+    # results_2_twist.plot_state(key="q")
+    # results_3_twist.plot_state(key="q")
+
+    # tester temps variable
+
+    # results_all_twist.plot_time_iter()
+    # results_all_twist.plot_integration_final_error()
+    # results_all_twist.plot_integration_final_error(key="rotation_error_root")
+    # results_all_twist.plot_integration_final_error(key="rotation_error_joint")
+    results_all_twist.plot_obj_values()
+
+    results_all_twist.plot_obj_values_except()
+
+    # results_1_twist.plot_integration_final_error()
+    # results_2_twist.plot_integration_final_error()
+    # results_3_twist.plot_integration_final_error()
+
+    # results_1_twist.plot_integration_final_error(key="rotation_error_root")
+    # results_2_twist.plot_integration_final_error(key="rotation_error_root")
+    # results_3_twist.plot_integration_final_error(key="rotation_error_root")
+    #
+    # results_1_twist.plot_integration_final_error(key="rotation_error_joint")
+    # results_2_twist.plot_integration_final_error(key="rotation_error_joint")
+    # results_3_twist.plot_integration_final_error(key="rotation_error_joint")
+
+    # results_1_twist, results_2_twist, results_3_twist = load_results_objects()
     # results_leg.plot_near_optimality_cumulative(show=True, export=True)
     # results_arm.plot_near_optimality_cumulative(show=True, export=True)
     # results_acrobat.plot_near_optimality_cumulative(show=True, export=True)
 
-    # big_figure(
+    big_figure(results_all=results_all_twist)
+
+    # results_acrobat.plot_obj_value_with_consistency(threshold=50)
+    # #
+    # figure_article(
     #     results_leg=results_leg,
     #     results_arm=results_arm,
     #     results_acrobat=results_acrobat,
     #     results_walker=results_walker,
     #     results_upper_limb=results_upper_limb,
     # )
-
-    results_acrobat.plot_obj_value_with_consistency(threshold=50)
-    #
-    figure_article(
-        results_leg=results_leg,
-        results_arm=results_arm,
-        results_acrobat=results_acrobat,
-        results_walker=results_walker,
-        results_upper_limb=results_upper_limb,
-    )
     # figure_cumulative(
     #     results_arm=results_arm,
     #     results_acrobat=results_acrobat,

@@ -41,6 +41,11 @@ def compute_error_single_shooting(
     -------
     The error between the two solutions
     :tuple
+        * The error in translation
+        * The error in rotation
+        * The error in translation for root dof
+        * The error in rotation for root dof
+
     """
 
     duration = time[-1] if duration is None else duration
@@ -60,9 +65,35 @@ def compute_error_single_shooting(
         (rmse(q[trans_idx, sn_1s], q_integrated[trans_idx, sn_1s]) / 1000) if len(trans_idx) > 0 else np.nan
     )
 
+    # Root calculations
+    trans_idx, rot_idx = get_trans_and_rot_idx(model=model, root=True)
+    single_shoot_error_root_t = (
+        rmse(q[trans_idx, sn_1s], q_integrated[trans_idx, sn_1s]) * 180 / np.pi if len(rot_idx) > 0 else np.nan
+    )
+    single_shoot_error_root_r = (
+        rmse(q[rot_idx, sn_1s], q_integrated[rot_idx, sn_1s]) * 180 / np.pi if len(rot_idx) > 0 else np.nan
+    )
+
+    #Joints only calculations
+    trans_idx, rot_idx = get_trans_and_rot_idx(model=model, joints=True)
+    if trans_idx.size > 0:
+        single_shoot_error_joints_t = (
+            rmse(q[trans_idx, sn_1s], q_integrated[trans_idx, sn_1s]) * 180 / np.pi if len(rot_idx) > 0 else np.nan
+        )
+    else:
+        single_shoot_error_joints_t = np.nan
+
+    single_shoot_error_joints_r = (
+        rmse(q[rot_idx, sn_1s], q_integrated[rot_idx, sn_1s]) * 180 / np.pi if len(rot_idx) > 0 else np.nan
+    )
+
     return (
         single_shoot_error_t,
         single_shoot_error_r,
+        single_shoot_error_root_t,
+        single_shoot_error_root_r,
+        single_shoot_error_joints_t,
+        single_shoot_error_joints_r,
     )
 
 
@@ -100,7 +131,7 @@ def compute_error_single_shooting_each_frame(
     single_shoot_error_r = np.zeros(time.shape[0])
 
     for i, t in enumerate(time):
-        (single_shoot_error_t[i], single_shoot_error_r[i],) = compute_error_single_shooting(
+        single_shoot_error_t[i], single_shoot_error_r[i], _, _, _, _ = compute_error_single_shooting(
             time=time,
             n_shooting=n_shooting,
             model=model,
@@ -112,7 +143,7 @@ def compute_error_single_shooting_each_frame(
     return single_shoot_error_t, single_shoot_error_r
 
 
-def get_trans_and_rot_idx(model: biorbd.Model) -> tuple:
+def get_trans_and_rot_idx(model: biorbd.Model, root: bool=False, joints: bool=False) -> tuple:
     """
     This function
 
@@ -120,6 +151,8 @@ def get_trans_and_rot_idx(model: biorbd.Model) -> tuple:
     ----------
     model: biorbd.Model
         The model from biorbd
+    root: bool
+        If only root dof are considered
 
     Returns
     ----------
@@ -128,7 +161,11 @@ def get_trans_and_rot_idx(model: biorbd.Model) -> tuple:
     # get the index of translation and rotation dof
     trans_idx = []
     rot_idx = []
-    for i in range(model.nbQ()):
+    n = model.nbRoot() if root else model.nbQ()
+    for i in range(n):
+        if joints:
+            if i < model.nbRoot():
+                continue
         if model.nameDof()[i].to_string()[-4:-1] == "Rot":
             rot_idx += [i]
         elif "_Trans" in model.nameDof()[i].to_string():
@@ -222,6 +259,7 @@ def my_traces(
     ylog: bool = True,
     colors: list = None,
     show_legend: bool = False,
+    label=None,
 ):
     """
     This function is used to boxplot the data in the dataframe.
@@ -310,6 +348,119 @@ def my_traces(
         color="black",
         showticklabels=False,
         ticks="",
+    )
+    return fig
+
+def my_traces_2_param(
+    fig: go.Figure,
+    dyn: str,
+    grps: list,
+    df: DataFrame,
+    key: str,
+    row: int,
+    col: int,
+    ylabel: str = None,
+    title_str: str = None,
+    ylog: bool = True,
+    colors: list = None,
+    show_legend: bool = False,
+    label=None,
+):
+    """
+    This function is used to boxplot the data in the dataframe.
+
+    Parameters
+    ----------
+    fig : go.Figure
+        The figure to which the boxplot is added.
+    dyn : str
+        The name of the dynamic system.
+    grps : list
+        The list of groups to be plotted.
+    df : DataFrame
+        The dataframe containing the data.
+    key : str
+        The key of the dataframe such as "q" or "tau".
+    row : int
+        The row of the subplot.
+    col : int
+        The column of the subplot.
+    ylabel : str
+        The label of the y-axis.
+    title_str : str
+        The title of the subplot.
+    ylog : bool
+        If true, the y-axis is logarithmic.
+    colors : list
+        The colors of the boxplot.
+    show_legend : bool
+        If true, the legend is shown.
+    """
+    ylog = "log" if ylog == True else None
+    if (col == 1 and row == 1) or (col is None or row is None) or show_legend == True:
+        showleg = True
+    else:
+        showleg = False
+
+    twist_list_label = np.sort(df["twists"].unique()/(2 * np.pi)).tolist()
+    twist_list = np.sort(df["twists"].unique()).tolist()
+    for ii, tw in enumerate(twist_list):
+        subdf = df[df["twists"] == tw]
+        twist_label = tw/(2 * np.pi)
+
+        c = (
+            px.colors.hex_to_rgb(px.colors.qualitative.D3[ii % 9])
+            if colors is None
+            else px.colors.hex_to_rgb(colors[ii])
+        )
+        c = str(f"rgba({c[0]},{c[1]},{c[2]},0.5)")
+        c1 = px.colors.qualitative.D3[ii % 9] if colors is None else colors[ii]
+
+        fig.add_trace(
+            go.Box(
+                x=subdf[label].tolist(),
+                y=subdf[key].tolist(),
+                name=f"nb_twists = {twist_label}",
+                boxpoints="all",
+                # width=0.1,
+                pointpos=-1.25,
+                legendgroup=f"nb_twists = {twist_label}",
+                fillcolor=c,
+                marker=dict(opacity=0.5),
+                line=dict(color=c1),
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_traces(
+        jitter=0.4,
+        marker=dict(size=3),
+        row=row,
+        col=col,
+        showlegend=showleg,
+        selector=dict(type="box"),
+    )
+    fig.update_layout(
+        boxmode='group',
+        # space between box
+        # boxgap=1,
+    )
+    fig.update_yaxes(
+        type=ylog,
+        row=row,
+        col=col,
+        title=ylabel,
+        title_standoff=2,
+        exponentformat="e",
+    )
+    fig.update_xaxes(
+        row=row,
+        col=col,
+        color="black",
+        showticklabels=True,
+        # ticks="",
+        range=[-0.6, 5.6],
     )
     return fig
 
