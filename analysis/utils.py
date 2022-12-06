@@ -317,6 +317,7 @@ def my_traces(
                 width=0.4,
                 pointpos=-2,
                 legendgroup=grps[ii],
+                offsetgroup=grps[ii],
                 fillcolor=c,
                 marker=dict(opacity=0.5),
                 line=dict(color=c1),
@@ -406,25 +407,27 @@ def my_traces_2_param(
     twist_list = np.sort(df["twists"].unique()).tolist()
     for ii, tw in enumerate(twist_list):
         subdf = df[df["twists"] == tw]
-        twist_label = tw/(2 * np.pi)
+        twist_label = int(tw/(2 * np.pi))
 
         c = (
             px.colors.hex_to_rgb(px.colors.qualitative.D3[ii % 9])
             if colors is None
             else px.colors.hex_to_rgb(colors[ii])
         )
-        c = str(f"rgba({c[0]},{c[1]},{c[2]},0.5)")
+        c = str(f"rgba({c[0]},{c[1]},{c[2]},{0.25*ii+0.25})")
         c1 = px.colors.qualitative.D3[ii % 9] if colors is None else colors[ii]
+
 
         fig.add_trace(
             go.Box(
                 x=subdf[label].tolist(),
                 y=subdf[key].tolist(),
-                name=f"nb_twists = {twist_label}",
+                name=f"{twist_label} twist" if twist_label == 1 else f"{twist_label} twists",
                 boxpoints="all",
                 # width=0.1,
-                pointpos=-1.25,
+                # pointpos=-1.25,
                 legendgroup=f"nb_twists = {twist_label}",
+                offsetgroup=f"nb_twists = {twist_label}",
                 fillcolor=c,
                 marker=dict(opacity=0.5),
                 line=dict(color=c1),
@@ -440,12 +443,15 @@ def my_traces_2_param(
         col=col,
         showlegend=showleg,
         selector=dict(type="box"),
+        # width=0.22,
     )
-    fig.update_layout(
-        boxmode='group',
-        # space between box
-        # boxgap=1,
-    )
+    # fig.update_layout(
+    #     boxmode='group',
+    #     # row=row,
+    #     # col=col,
+    #     # space between box
+    #     # boxgap=1,
+    # )
     fig.update_yaxes(
         type=ylog,
         row=row,

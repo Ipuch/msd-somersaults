@@ -260,35 +260,27 @@ class ResultsAnalyse:
                 if data["ode_solver_defects_labels"] == "ERK4 5 steps":
                     data["ode_solver_defects_labels"] = "ERK"
                     if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
-                        data["full_label"] = r'$\text{ERK}\text{ - torque driven}$'
+                        data["full_label"] = r'$\text{ERK}\text{ - }\boldsymbol{\tau}_J$'
                     else:
-                        data["full_label"] = r'$\text{ERK}\text{ - joints acceleration driven}$'
+                        data["full_label"] = r'$\text{ERK}\text{ - }\ddot{q}_J$'
                 elif data["ode_solver_defects_labels"] == "ERK8":
                     data["ode_solver_defects_labels"] = r'$\text{ERK8}$'
                     if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
-                        data["full_label"] = r'$\text{ERK8}\text{ - torque driven}$'
+                        data["full_label"] = r'$\text{ERK8}\text{ - }\boldsymbol{\tau}_J$'
                     else:
                         data["full_label"] = r'$\text{ERK8}\text{ - joints acceleration driven}$'
-                # # elif data["ode_solver_defects_labels"] == "IRK implicit":
-                # #     data["ode_solver_defects_labels"] = r'$\text{IRK}^{\text{ID}}$'
-                # elif data["ode_solver_defects_labels"] == "IRK explicit":
-                #     data["ode_solver_defects_labels"] = r'$\text{IRK}^{\text{FD}}$'
-                #     if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
-                #         data["full_label"] = r'$\text{IRK}^{\text{FD}}\text{ - torque driven}$'
-                #     elif data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
-                #         data["full_label"] = r'$\text{IRK}^{\text{FD}}\text{ - joints acceleration driven}$'
                 elif data["ode_solver_defects_labels"] == "COLLOCATION implicit":
                     data["ode_solver_defects_labels"] = r'$\text{DC}^{\text{ID}}$'
                     if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
-                        data["full_label"] = r'$\text{DC}^{\text{ID}}\text{ - torque driven}$'
+                        data["full_label"] = r'$\text{DC}^{\text{ID}}\text{ - }\boldsymbol{\tau}_J$'
                     elif data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
-                        data["full_label"] = r'$\text{DC}^{\text{ID}}\text{ - joints acceleration driven}$'
+                        data["full_label"] = r'$\text{DC}^{\text{ID}}\text{ - }\ddot{q}_J$'
                 elif data["ode_solver_defects_labels"] == "COLLOCATION explicit":
                     data["ode_solver_defects_labels"] = r'$\text{DC}^{\text{FD}}$'
                     if data["dynamics_function"] == DynamicsFcn.TORQUE_DRIVEN:
-                        data["full_label"] = r'$\text{DC}^{\text{FD}}\text{ - torque driven}$'
+                        data["full_label"] = r'$\text{DC}^{\text{FD}}\text{ - }\boldsymbol{\tau}_J$'
                     elif data["dynamics_function"] == DynamicsFcn.JOINTS_ACCELERATION_DRIVEN:
-                        data["full_label"] = r'$\text{DC}^{\text{FD}}\text{ - joints acceleration driven}$'
+                        data["full_label"] = r'$\text{DC}^{\text{FD}}\text{ - }\ddot{q}_J$'
 
                 data["grps"] = f"{data['ode_solver'].__str__()}_{data['defects_type'].value}_{n_shooting}"
 
@@ -308,12 +300,12 @@ class ResultsAnalyse:
         # sort the dataframe by the column by ode_solver_defects
         # rk4, rk8, irk explicit, irk implicit, collocation explicit, collocation implicit
         ode_solver_defects_list = [
-            r'$\text{ERK}\text{ - torque driven}$',
-            r'$\text{ERK}\text{ - joints acceleration driven}$',
-            r'$\text{DC}^{\text{FD}}\text{ - torque driven}$',
-            r'$\text{DC}^{\text{FD}}\text{ - joints acceleration driven}$',
-            r'$\text{DC}^{\text{ID}}\text{ - torque driven}$',
-            r'$\text{DC}^{\text{ID}}\text{ - joints acceleration driven}$',
+            r'$\text{ERK}\text{ - }\boldsymbol{\tau}_J$',
+            r'$\text{ERK}\text{ - }\ddot{q}_J$',
+            r'$\text{DC}^{\text{FD}}\text{ - }\boldsymbol{\tau}_J$',
+            r'$\text{DC}^{\text{FD}}\text{ - }\ddot{q}_J$',
+            r'$\text{DC}^{\text{ID}}\text{ - }\boldsymbol{\tau}_J$',
+            r'$\text{DC}^{\text{ID}}\text{ - }\ddot{q}_J$',
         ]
         colors = {ode: px.colors.qualitative.D3[i] for i, ode in enumerate(ode_solver_defects_list)}
 
@@ -414,14 +406,35 @@ class ResultsAnalyse:
         a = len(self.df[self.df["status"] == 1])
         b = len(self.df)
         print(f"{a} / {b} did not converge to an optimal solutions")
-        formulation = self.df["grps"].unique()
+        formulation = self.df["full_label"].unique()
 
         for f in formulation:
-            sub_df = self.df[self.df["grps"] == f]
+            sub_df = self.df[self.df["full_label"] == f]
             str_formulation = f.replace("_", " ").replace("-", " ").replace("\n", " ")
+            print(str_formulation)
             a = len(sub_df[sub_df["status"] == 1])
             b = len(sub_df)
             print(f"{a} / {b} {str_formulation} did not converge to an optimal solutions")
+
+            print("COMPUTATION TIME")
+            print("median: ", sub_df[sub_df["status"] == 0]["computation_time"].median()/60)
+            # #interquartile
+            IQ = sub_df[sub_df["status"] == 0]["computation_time"].quantile([0.25, 0.75])
+            diff = IQ[0.75] - IQ[0.25]
+            print("interquartile: ", diff/60)
+            # # min - max
+            print("min: ", sub_df[sub_df["status"] == 0]["computation_time"].min()/60)
+            print("max: ", sub_df[sub_df["status"] == 0]["computation_time"].max()/60)
+
+            print("ROTATION ERROR")
+            print("median: ", sub_df[sub_df["status"] == 0]["rotation_error"].median())
+            # #interquartile
+            IQ = sub_df[sub_df["status"] == 0]["rotation_error"].quantile([0.25, 0.75])
+            diff = IQ[0.75] - IQ[0.25]
+            print("interquartile: ", diff)
+            # # min - max
+            print("min: ", sub_df[sub_df["status"] == 0]["rotation_error"].min())
+            print("max: ", sub_df[sub_df["status"] == 0]["rotation_error"].max())
 
             data = dict(
                 convergence_rate=1 - (a / b),
@@ -1422,27 +1435,27 @@ class ResultsAnalyse:
             label="full_label"
         )
 
-        fig.update_layout(
-            height=800,
-            width=1500,
-            paper_bgcolor="rgba(255,255,255,1)",
-            plot_bgcolor="rgba(255,255,255,1)",
-            legend=dict(
-                title_font_family="Times New Roman",
-                font=dict(family="Times New Roman", color="black", size=15),
-                orientation="h",
-                xanchor="center",
-                x=0.5,
-                y=0.95,
-            ),
-            font=dict(
-                size=15,
-                family="Times New Roman",
-            ),
-            yaxis=dict(color="black"),
-            template="simple_white",
-            boxgap=0.2,
-        )
+        # fig.update_layout(
+        #     height=800,
+        #     width=1500,
+        #     paper_bgcolor="rgba(255,255,255,1)",
+        #     plot_bgcolor="rgba(255,255,255,1)",
+        #     legend=dict(
+        #         title_font_family="Times New Roman",
+        #         font=dict(family="Times New Roman", color="black", size=15),
+        #         orientation="h",
+        #         xanchor="center",
+        #         x=0.5,
+        #         y=0.95,
+        #     ),
+        #     font=dict(
+        #         size=15,
+        #         family="Times New Roman",
+        #     ),
+        #     yaxis=dict(color="black"),
+        #     template="simple_white",
+        #     boxgap=0.2,
+        # )
         # fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
 
         fig.update_yaxes(
@@ -1495,27 +1508,27 @@ class ResultsAnalyse:
             label="full_label",
         )
 
-        fig.update_layout(
-            height=800,
-            width=1500,
-            paper_bgcolor="rgba(255,255,255,1)",
-            plot_bgcolor="rgba(255,255,255,1)",
-            legend=dict(
-                title_font_family="Times New Roman",
-                font=dict(family="Times New Roman", color="black", size=11),
-                orientation="h",
-                xanchor="center",
-                x=0.5,
-                y=-0.05,
-            ),
-            font=dict(
-                size=12,
-                family="Times New Roman",
-            ),
-            yaxis=dict(color="black"),
-            template="simple_white",
-            boxgap=0.2,
-        )
+        # fig.update_layout(
+        #     height=800,
+        #     width=1500,
+        #     paper_bgcolor="rgba(255,255,255,1)",
+        #     plot_bgcolor="rgba(255,255,255,1)",
+        #     legend=dict(
+        #         title_font_family="Times New Roman",
+        #         font=dict(family="Times New Roman", color="black", size=11),
+        #         orientation="h",
+        #         xanchor="center",
+        #         x=0.5,
+        #         y=-0.05,
+        #     ),
+        #     font=dict(
+        #         size=12,
+        #         family="Times New Roman",
+        #     ),
+        #     yaxis=dict(color="black"),
+        #     template="simple_white",
+        #     boxgap=0.2,
+        # )
 
         fig.update_yaxes(
             row=1,
@@ -2268,13 +2281,13 @@ def load_results_objects() -> tuple:
         results_all_twists.print()
     with open("results_1_twist.pickle", "rb") as f:
         results_1_twist = pickle.load(f)
-        results_1_twist.print()
+        # results_1_twist.print()
     with open("results_2_twist.pickle", "rb") as f:
         results_2_twist = pickle.load(f)
-        results_2_twist.print()
+        # results_2_twist.print()
     with open("results_3_twist.pickle", "rb") as f:
         results_3_twist = pickle.load(f)
-        results_3_twist.print()
+        # results_3_twist.print()
 
     return results_all_twists, results_1_twist, results_2_twist, results_3_twist
 
@@ -2290,15 +2303,24 @@ def big_figure(
         subplot_titles=("Time", "Cost Function", "Dynamic Consistency"),
     )
 
-    keys = ["computation_time", "cost", "cumulative_percent_of_near_optimal_ocp", "rotation_error"]
-    ylabels = ["CPU time\n(s)", "Cost function value", "Near optimal frequency (%)", "Rotation error RMSE\n(deg)"]
 
-    fig = results_all.plot_time(fig=fig, row=1, col=1, time_unit="min", show=False)
-    fig.show()
     fig = results_all.plot_obj_values_except(fig=fig, row=1, col=2, show=False)
-    fig.show()
+    # fig.show()
     fig = results_all.plot_integration_final_error(fig=fig, row=1, col=3, show=False)
-    fig.show()
+    # fig.show()
+    fig = results_all.plot_time(fig=fig, row=1, col=1, time_unit="min", show=False)
+    # fig.show()
+
+    # enlarge the boxes of each subplot
+    # fig.update_traces(width=0.2, selector=dict(type='box'))
+
+    fig.update_layout(
+        boxmode='group',
+        # space between box
+        boxgroupgap=0,
+        boxgap=0,
+    )
+
 
     fig.update_layout(
         height=600,
@@ -2307,14 +2329,14 @@ def big_figure(
         plot_bgcolor="rgba(255,255,255,1)",
         legend=dict(
             title_font_family="Times New Roman",
-            font=dict(family="Times New Roman", color="black", size=11),
+            font=dict(family="Times New Roman", color="black", size=15),
             orientation="h",
             xanchor="center",
             x=0.5,
-            y=-0.05,
+            y=0.95,
         ),
         font=dict(
-            size=12,
+            size=15,
             family="Times New Roman",
         ),
         yaxis=dict(color="black"),
@@ -2325,6 +2347,14 @@ def big_figure(
     fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
     fig = add_annotation_letter(fig, "B", x=0.36, y=0.99, on_paper=True)
     fig = add_annotation_letter(fig, "C", x=0.70, y=0.99, on_paper=True)
+
+    # the first subplot has a yrange of 0 - 165
+    fig.update_yaxes(range=[0, 165], row=1, col=1)
+
+    # strech all the boxes to the same width
+    fig.update_xaxes(matches="x")
+    # fig.update_yaxes(matches="y")
+
 
     # # display the horizontal lines for each grid of the figure
     # for i in range(1, 5):
@@ -2357,6 +2387,73 @@ def big_figure(
     # fig.update_layout(legend=dict(font=dict(size=15)))
 
     fig.show()
+
+
+def big_figure_2(
+        results_all: ResultsAnalyse,
+):
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        vertical_spacing=0.1,
+        horizontal_spacing=0.1,
+        subplot_titles=("Time", "Cost Function"),
+    )
+
+    fig = results_all.plot_time(fig=fig, row=1, col=1, time_unit="min", show=False)
+    fig = results_all.plot_obj_values_except(fig=fig, row=1, col=2, show=False)
+
+    fig.update_layout(
+        boxmode='group',
+        boxgroupgap=0.40,
+        boxgap=0,
+    )
+
+    # delete empty box plots
+    fig.update_traces(visible=False, selector=dict(type='box', name=""))
+
+    fig.update_layout(
+        height=500,
+        width=1000,
+        paper_bgcolor="rgba(255,255,255,1)",
+        plot_bgcolor="rgba(255,255,255,1)",
+        legend=dict(
+            title_font_family="Times New Roman",
+            font=dict(family="Times New Roman", color="black", size=15),
+            orientation="h",
+            xanchor="center",
+            x=0.5,
+            y=1.15,
+        ),
+        font=dict(
+            size=15,
+            family="Times New Roman",
+        ),
+        yaxis=dict(color="black"),
+        template="simple_white",
+    )
+
+    fig = add_annotation_letter(fig, "A", x=0.01, y=0.99, on_paper=True)
+    fig = add_annotation_letter(fig, "B", x=0.55, y=0.99, on_paper=True)
+
+    # the first subplot has a yrange of 0 - 165
+    fig.update_yaxes(range=[0, 165], row=1, col=1)
+
+    # strech all the boxes to the same width
+    fig.update_xaxes(tickangle=15, row=1, col=1)
+    fig.update_xaxes(tickangle=15, row=1, col=2)
+
+    fig.show()
+
+    # export the figure
+    filename = "summary_figure"
+    export_suffix = ""
+    format_type = ["png", "pdf", "svg", "eps"]
+    # 600 dpi is good for printing
+    for f in format_type:
+        fig.write_image(Path(results_all.path_to_files).parent.__str__() + f"/{filename}{export_suffix}." + f, scale=2)
+    fig.write_html(Path(results_all.path_to_files).parent.__str__() + f"/{filename}{export_suffix}.html",
+                   include_mathjax="cdn")
 
 
 def figure_article(
@@ -2509,85 +2606,6 @@ def figure_article(
     fig.write_html(Path(results_leg.path_to_files).parent.__str__() + f"/{filename}{export_suffix}.html", include_mathjax="cdn")
 
 
-def figure_cumulative(
-        results_arm: ResultsAnalyse,
-        results_acrobat: ResultsAnalyse,
-):
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        vertical_spacing=0.1,
-        horizontal_spacing=0.1,
-        subplot_titles=("6-DoF Arm", "Acrobat"),
-    )
-
-    df = ["near_optimal"]
-    keys = ["cumulative_percent_of_near_optimal_ocp"]
-    ylabels = ["Near optimal frequency (%)"]
-
-    ylog = [False]
-    fig = results_arm.plot_keys(keys=keys, fig=fig, col=1, ylog=ylog, df_list=df, show=True)
-    fig = results_acrobat.plot_keys(keys=keys, fig=fig, col=2, ylog=ylog, df_list=df, show=False)
-
-    fig.update_layout(
-        height=400,
-        width=850,
-        paper_bgcolor="rgba(255,255,255,1)",
-        plot_bgcolor="rgba(255,255,255,1)",
-        legend=dict(
-            title_font_family="Times New Roman",
-            font=dict(family="Times New Roman", color="black", size=12),
-            orientation="h",
-            xanchor="center",
-            x=0.5,
-            y=-0.3,
-        ),
-        font=dict(
-            size=12,
-            family="Times New Roman",
-        ),
-        yaxis=dict(color="black"),
-        template="simple_white",
-        boxgap=0.2,
-    )
-
-    # display the horizontal lines for each grid of the figure
-    for i in range(1, 3):
-        for j in range(1, 3):
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="lightgrey", row=i, col=j)
-
-    # 5 ticks on y axis for each subplots
-    for i in range(1, 3):
-        for j in range(1, 3):
-            fig.update_yaxes(nticks=5, row=i, col=j)
-
-    # delete all the yaxis titles if col > 1
-    for i in range(1, 5):
-        for j in range(2, 6):
-            fig.update_yaxes(title="", row=i, col=j)
-
-    for i in range(1, 3):
-        fig.update_yaxes(tickformat=".0%", row=1, col=i)
-        fig.update_yaxes(range=[0, 1.1], row=1, col=i)
-
-    for i in range(1, 3):
-        fig.update_xaxes(range=[0, 1.6], row=1, col=i)
-
-
-    # custom ranges
-
-    fig.show()
-
-    # export the figure
-    filename = "cumlative_global_optimum"
-    export_suffix = ""
-    format_type = ["png", "pdf", "svg", "eps"]
-    for f in format_type:
-        fig.write_image(Path(results_arm.path_to_files).parent.__str__() + f"/{filename}{export_suffix}." + f, engine="kaleido")
-    fig.write_html(Path(results_arm.path_to_files).parent.__str__() + f"/{filename}{export_suffix}.html",
-                   include_mathjax="cdn")
-
-
 if __name__ == "__main__":
     # results_all_twist, results_1_twist, results_2_twist, results_3_twist = generate_results_objects()
     results_all_twist, results_1_twist, results_2_twist, results_3_twist = load_results_objects()
@@ -2614,9 +2632,9 @@ if __name__ == "__main__":
     # results_all_twist.plot_integration_final_error()
     # results_all_twist.plot_integration_final_error(key="rotation_error_root")
     # results_all_twist.plot_integration_final_error(key="rotation_error_joint")
-    results_all_twist.plot_obj_values()
-
-    results_all_twist.plot_obj_values_except()
+    # results_all_twist.plot_obj_values()
+    #
+    # results_all_twist.plot_obj_values_except()
 
     # results_1_twist.plot_integration_final_error()
     # results_2_twist.plot_integration_final_error()
@@ -2635,7 +2653,8 @@ if __name__ == "__main__":
     # results_arm.plot_near_optimality_cumulative(show=True, export=True)
     # results_acrobat.plot_near_optimality_cumulative(show=True, export=True)
 
-    big_figure(results_all=results_all_twist)
+    # big_figure(results_all=results_all_twist)
+    big_figure_2(results_all=results_all_twist)
 
     # results_acrobat.plot_obj_value_with_consistency(threshold=50)
     # #
